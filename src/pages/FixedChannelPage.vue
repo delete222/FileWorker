@@ -26,7 +26,7 @@ const textLoading = ref(false);
 const textSaving = ref(false);
 const textUpdatedAt = ref("");
 const fileUploading = ref(false);
-const fileExists = ref(false);
+const fileExists = ref<boolean | null>(null);
 const latestFilename = ref("");
 const fileSize = ref<number | null>(null);
 const fileUpdatedAt = ref("");
@@ -95,21 +95,28 @@ const loadLatestText = async (showResult = false) => {
 const loadFileInfo = async () => {
   if (!ready.value) return;
   try {
-    const response = await authorizedFetch(`/${FILE_KEY}?t=${Date.now()}`, { method: "HEAD" });
-    fileExists.value = response.ok;
-    if (!response.ok) {
+    const response = await authorizedFetch(`/${FILE_KEY}?metadata=1&t=${Date.now()}`);
+    if (response.status === 404) {
+      fileExists.value = false;
       latestFilename.value = "";
       fileSize.value = null;
       fileUpdatedAt.value = "";
       return;
     }
-    const encodedName = response.headers.get("x-store-filename");
-    latestFilename.value = encodedName ? decodeURIComponent(encodedName) : "latest-file";
-    const length = response.headers.get("content-length");
-    fileSize.value = length ? Number(length) : null;
-    fileUpdatedAt.value = formatTime(response.headers.get("last-modified"));
+    if (!response.ok) throw new Error(await response.text());
+
+    const metadata = await response.json() as {
+      filename: string;
+      size: number | null;
+      lastModified: string;
+    };
+    fileExists.value = true;
+    latestFilename.value = metadata.filename ? decodeURIComponent(metadata.filename) : "latest-file";
+    fileSize.value = metadata.size;
+    fileUpdatedAt.value = formatTime(metadata.lastModified);
   } catch (error) {
     console.error(error);
+    fileExists.value = null;
   }
 };
 
@@ -294,19 +301,20 @@ onBeforeUnmount(() => {
       >
         <div class="file-info">
           <h2>文件</h2>
-          <p v-if="fileExists" class="filename">{{ latestFilename }}</p>
-          <p v-if="fileExists">
+          <p v-if="fileExists === true" class="filename">{{ latestFilename }}</p>
+          <p v-if="fileExists === true">
             {{ fileSize !== null ? formatBytes(fileSize) : "" }}
             <span v-if="fileUpdatedAt"> · 最后更新：{{ fileUpdatedAt }}</span>
           </p>
-          <p v-else>尚未上传；也可以把文件拖到这里</p>
+          <p v-else-if="fileExists === false">尚未上传；也可以把文件拖到这里</p>
+          <p v-else>文件状态读取失败，仍可尝试下载</p>
         </div>
         <input ref="fileInput" type="file" class="hidden" @change="onFileSelected" />
         <div class="file-actions">
           <button class="secondary" @click="fileInput?.click()" :disabled="fileUploading">
             {{ fileUploading ? "上传中…" : "上传新文件" }}
           </button>
-          <button class="primary" @click="downloadLatestFile" :disabled="!fileExists">
+          <button class="primary" @click="downloadLatestFile" :disabled="fileExists === false">
             下载最新文件
           </button>
         </div>

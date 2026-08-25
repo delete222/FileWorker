@@ -51,34 +51,32 @@ const buildObjectHeaders = (filename: string, response: ObjectHeadersSource) => 
 const fixedChannelAuthorized = (env: Env, request: Request, filename: string) =>
     !JILI_KEYS.has(filename) || canAccess(env, request, filename);
 
-export const onRequestHead: PagesFunction<Env> = async ({ params, env, request }) => {
-    const filename = params.filename as string;
-    if (!fixedChannelAuthorized(env, request, filename)) {
-        return new Response(null, { status: 404 });
-    }
-
-    try {
-        const response = await createS3Client(env).send(
-            new HeadObjectCommand({ Bucket: env.BUCKET, Key: filename })
-        );
-        const headers = buildObjectHeaders(filename, response);
-        if (!JILI_KEYS.has(filename) &&
-            headers.get("x-store-visibility") !== "public" &&
-            !auth(env, request)) {
-            return new Response(null, { status: 404 });
-        }
-        return new Response(null, { status: 200, headers });
-    } catch {
-        return new Response(null, { status: 404 });
-    }
-};
-
 export const onRequestGet: PagesFunction<Env> = async (context) => {
     const { params, env, request } = context;
     const filename = params.filename as string;
 
     if (!fixedChannelAuthorized(env, request, filename)) {
         return new Response("Not found", { status: 404 });
+    }
+
+    // Return lightweight file metadata as JSON. A dedicated response avoids
+    // HEAD/body and Content-Length inconsistencies in Cloudflare Pages.
+    const url = new URL(request.url);
+    if (filename === "jili-file" && url.searchParams.get("metadata") === "1") {
+        try {
+            const response = await createS3Client(env).send(
+                new HeadObjectCommand({ Bucket: env.BUCKET, Key: filename })
+            );
+            return Response.json({
+                filename: response.Metadata?.['x-store-filename'] ?? "",
+                size: response.ContentLength ?? null,
+                lastModified: response.LastModified?.toISOString() ?? "",
+            }, {
+                headers: { 'cache-control': 'no-store, max-age=0' },
+            });
+        } catch {
+            return new Response("Not found", { status: 404 });
+        }
     }
 
     const s3 = createS3Client(env);
