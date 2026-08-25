@@ -40,7 +40,7 @@ export const historyKey = (type: GudingType, id: string) => `${historyPrefix(typ
 export const validHistoryId = (id: string) => /^\d{13}-[0-9a-f]{8}$/.test(id);
 
 export const copySource = (bucket: string, key: string) =>
-    `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
+    `/${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
 
 export const trimHistory = async (s3: S3Client, env: Env, type: GudingType) => {
     const listed = await s3.send(new ListObjectsV2Command({
