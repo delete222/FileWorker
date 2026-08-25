@@ -5,7 +5,7 @@ import mime from 'mime/lite';
 
 import Env from './utils/Env';
 import { createS3Client, auth } from './utils/utils';
-import { archiveCurrent, getGudingType, hasGudingAccess, isFixedKey } from './utils/guding';
+import { hasGudingAccess, isFixedKey } from './utils/guding';
 
 const canAccess = (env: Env, request: Request, filename: string) =>
     auth(env, request) || hasGudingAccess(env, request, filename);
@@ -99,14 +99,13 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     }
 
     const s3 = createS3Client(env);
-    const gudingType = getGudingType(filename);
-    if (gudingType) await archiveCurrent(s3, env, gudingType);
+    const fixedKey = isFixedKey(filename);
 
     const metadata: [string, string][] = [];
     for (const [key, value] of request.headers.entries()) {
         if (key.startsWith('x-store-')) metadata.push([key, value]);
     }
-    if (gudingType) {
+    if (fixedKey) {
         const visibility = metadata.findIndex(([key]) => key === 'x-store-visibility');
         if (visibility >= 0) metadata[visibility] = ['x-store-visibility', 'private'];
         else metadata.push(['x-store-visibility', 'private']);
@@ -114,7 +113,6 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         const savedAtValue: [string, string] = ['x-store-saved-at', new Date().toISOString()];
         if (savedAt >= 0) metadata[savedAt] = savedAtValue;
         else metadata.push(savedAtValue);
-        metadata.push(['x-store-version-id', `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`]);
     }
 
     const upload = new Upload({
@@ -131,9 +129,6 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         leavePartsOnError: false,
     });
     await upload.done();
-    // Snapshot the successfully saved version too. This guarantees that the
-    // history list is populated immediately after the first save.
-    if (gudingType) await archiveCurrent(s3, env, gudingType);
     return Response.json({ ok: true }, { status: 200 });
 }
 
@@ -159,7 +154,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
 export const onRequestDelete: PagesFunction<Env> = async (context) => {
     const { params, env, request } = context;
     const filename = params.filename as string;
-    if (!auth(env, request)) return new Response("Unauthorized", { status: 401 });
+    if (!canAccess(env, request, filename)) return new Response("Unauthorized", { status: 401 });
 
     const command = new DeleteObjectCommand({ Bucket: env.BUCKET, Key: filename });
     const url = await getSignedUrl(createS3Client(env), command, { expiresIn: 3600 });

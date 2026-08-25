@@ -10,17 +10,6 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-interface HistoryVersion {
-  id: string;
-  type: "text" | "file";
-  filename: string;
-  size: number | null;
-  savedAt: string;
-  archivedAt: string;
-  preview: string;
-  isCurrent: boolean;
-}
-
 const CLIP_KEY = "jili-clip";
 const FILE_KEY = "jili-file";
 const TOKEN_STORAGE_KEY = "jili-channel-token";
@@ -46,11 +35,6 @@ const fileUpdatedAt = ref("");
 const fileInput = ref<HTMLInputElement>();
 const dragging = ref(false);
 const notice = ref<{ type: "success" | "error" | "info"; message: string } | null>(null);
-const historyOpen = ref(false);
-const historyType = ref<"text" | "file">("text");
-const historyLoading = ref(false);
-const historyVersions = ref<HistoryVersion[]>([]);
-const historyBusyId = ref("");
 const menuOpen = ref(false);
 const installPrompt = ref<InstallPromptEvent | null>(
   (window.__pwaInstallPrompt as InstallPromptEvent | undefined) ?? null
@@ -125,24 +109,6 @@ const loadFileInfo = async () => {
   }
 };
 
-const loadHistory = async (type: "text" | "file" = historyType.value) => {
-  historyType.value = type;
-  historyOpen.value = true;
-  historyLoading.value = true;
-  try {
-    const response = await authorizedFetch(`/guding-api?type=${type}&t=${Date.now()}`);
-    if (!response.ok) throw new Error(await response.text());
-    const result = await response.json() as { versions: HistoryVersion[] };
-    historyVersions.value = result.versions;
-  } catch (error) {
-    console.error(error);
-    historyVersions.value = [];
-    setNotice("error", "历史版本读取失败");
-  } finally {
-    historyLoading.value = false;
-  }
-};
-
 const saveText = async () => {
   if (!ready.value) return;
   textSaving.value = true;
@@ -151,9 +117,8 @@ const saveText = async () => {
     await PutFile(CLIP_KEY, text.value, "private", "text", { jiliToken: token.value });
     textDirty.value = false;
     textUpdatedAt.value = formatTime(new Date().toISOString());
-    setNotice("success", "文字保存成功；上一版已自动进入历史记录");
+    setNotice("success", "文字保存成功");
     toast("文字保存成功", "success");
-    if (historyOpen.value && historyType.value === "text") await loadHistory("text");
   } catch (error) {
     console.error(error);
     setNotice("error", "文字保存失败，请重试");
@@ -163,7 +128,7 @@ const saveText = async () => {
 };
 
 const clearText = async () => {
-  if (!window.confirm("清空当前文字？清空前的内容会保留在历史版本中。")) return;
+  if (!window.confirm("清空当前文字？此操作会覆盖现有内容。")) return;
   text.value = "";
   textDirty.value = true;
   await saveText();
@@ -192,9 +157,8 @@ const uploadFile = async (file: File) => {
     fileSize.value = file.size;
     fileUpdatedAt.value = formatTime(new Date().toISOString());
     fileExists.value = true;
-    setNotice("success", `文件“${file.name}”上传成功；上一版已自动归档`);
+    setNotice("success", `文件“${file.name}”上传成功`);
     toast("文件上传成功", "success");
-    if (historyOpen.value && historyType.value === "file") await loadHistory("file");
   } catch (error) {
     console.error(error);
     setNotice("error", "文件上传失败，请重试");
@@ -244,87 +208,18 @@ const downloadLatestFile = async () => {
 };
 
 const deleteCurrentFile = async () => {
-  if (!window.confirm("删除当前文件？删除前会自动保留一个历史版本。")) return;
+  if (!window.confirm("删除当前文件？此操作不能撤销。")) return;
   try {
-    const response = await authorizedFetch("/guding-api?type=file&current=1", { method: "DELETE" });
+    const response = await authorizedFetch(`/${FILE_KEY}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await response.text());
     fileExists.value = false;
     latestFilename.value = "";
     fileSize.value = null;
     fileUpdatedAt.value = "";
-    setNotice("success", "当前文件已删除，可从历史版本恢复");
-    if (historyOpen.value && historyType.value === "file") await loadHistory("file");
+    setNotice("success", "当前文件已删除");
   } catch (error) {
     console.error(error);
     setNotice("error", "删除文件失败");
-  }
-};
-
-const restoreHistory = async (version: HistoryVersion) => {
-  if (!window.confirm("恢复这个版本？当前版本会先自动归档。")) return;
-  historyBusyId.value = version.id;
-  try {
-    const response = await authorizedFetch("/guding-api", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type: version.type, id: version.id }),
-    });
-    if (!response.ok) throw new Error(await response.text());
-    if (version.type === "text") await loadLatestText();
-    else await loadFileInfo();
-    await loadHistory(version.type);
-    setNotice("success", "历史版本已恢复，刚才的当前版本也已归档");
-  } catch (error) {
-    console.error(error);
-    setNotice("error", "恢复历史版本失败");
-  } finally {
-    historyBusyId.value = "";
-  }
-};
-
-const copyHistoryText = async (version: HistoryVersion) => {
-  historyBusyId.value = version.id;
-  try {
-    const response = await authorizedFetch(`/guding-api?type=text&id=${encodeURIComponent(version.id)}`);
-    if (!response.ok) throw new Error(await response.text());
-    await navigator.clipboard.writeText(await response.text());
-    setNotice("success", "历史文字已复制，不会改变当前版本");
-  } catch (error) {
-    console.error(error);
-    setNotice("error", "复制历史文字失败");
-  } finally {
-    historyBusyId.value = "";
-  }
-};
-
-const downloadHistoryFile = async (version: HistoryVersion) => {
-  historyBusyId.value = version.id;
-  try {
-    const response = await authorizedFetch(`/guding-api?type=file&id=${encodeURIComponent(version.id)}`);
-    if (!response.ok) throw new Error(await response.text());
-    const filename = await saveBlob(response, "history-file");
-    setNotice("success", `已开始下载历史文件“${filename}”`);
-  } catch (error) {
-    console.error(error);
-    setNotice("error", "下载历史文件失败");
-  } finally {
-    historyBusyId.value = "";
-  }
-};
-
-const deleteHistory = async (version: HistoryVersion) => {
-  if (!window.confirm("永久删除这个历史版本？此操作不能撤销。")) return;
-  historyBusyId.value = version.id;
-  try {
-    const response = await authorizedFetch(`/guding-api?type=${version.type}&id=${encodeURIComponent(version.id)}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await response.text());
-    historyVersions.value = historyVersions.value.filter((item) => item.id !== version.id);
-    setNotice("success", "历史版本已删除");
-  } catch (error) {
-    console.error(error);
-    setNotice("error", "删除历史版本失败");
-  } finally {
-    historyBusyId.value = "";
   }
 };
 
@@ -350,7 +245,6 @@ const onVisibilityChange = () => {
   if (document.visibilityState !== "visible") return;
   if (!textDirty.value) loadLatestText();
   loadFileInfo();
-  if (historyOpen.value) loadHistory();
 };
 
 const onInstallAvailable = () => {
@@ -403,7 +297,6 @@ onBeforeUnmount(() => {
           <p>手机与电脑之间快速传递文字和文件</p>
         </div>
         <div class="header-actions">
-          <button class="secondary" @click="loadHistory(historyType)">历史版本</button>
           <button v-if="installPrompt && !isStandalone" class="secondary" @click="installApp">安装应用</button>
           <div class="more-menu">
             <button class="secondary" @click="menuOpen = !menuOpen">更多</button>
@@ -460,49 +353,19 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-if="historyOpen" class="card history-card">
-        <div class="history-header">
-          <div><h2>历史版本</h2><p>文字保留最近 20 版，文件保留最近 5 版</p></div>
-          <button class="icon-button" aria-label="关闭历史版本" @click="historyOpen = false">×</button>
-        </div>
-        <div class="history-tabs">
-          <button :class="{ active: historyType === 'text' }" @click="loadHistory('text')">文字历史</button>
-          <button :class="{ active: historyType === 'file' }" @click="loadHistory('file')">文件历史</button>
-        </div>
-        <p v-if="historyLoading" class="history-empty">正在读取历史版本…</p>
-        <p v-else-if="!historyVersions.length" class="history-empty">还没有历史版本；下一次覆盖时会自动生成。</p>
-        <div v-else class="history-list">
-          <article v-for="version in historyVersions" :key="version.id" class="history-item">
-            <div class="history-content">
-              <strong v-if="version.type === 'file'">{{ version.filename ? decodeURIComponent(version.filename) : "历史文件" }}</strong>
-              <strong v-else>{{ formatTime(version.savedAt) || "历史文字" }}</strong>
-              <span v-if="version.isCurrent" class="current-badge">当前版本</span>
-              <p v-if="version.type === 'file'">{{ version.size !== null ? formatBytes(version.size) : "" }} · {{ formatTime(version.savedAt) }}</p>
-              <p v-else class="preview">{{ version.preview || "（空白内容）" }}</p>
-            </div>
-            <div class="history-actions">
-              <button v-if="version.type === 'text'" class="secondary" @click="copyHistoryText(version)" :disabled="historyBusyId === version.id">复制</button>
-              <button v-else class="secondary" @click="downloadHistoryFile(version)" :disabled="historyBusyId === version.id">下载</button>
-              <button class="secondary" @click="restoreHistory(version)" :disabled="historyBusyId === version.id || version.isCurrent">恢复</button>
-              <button class="text-danger" @click="deleteHistory(version)" :disabled="historyBusyId === version.id || version.isCurrent">删除</button>
-            </div>
-          </article>
-        </div>
-      </section>
-
       <section v-if="showInstallHelp" class="install-help">
         <template v-if="isIOS">iPhone 安装：Safari 分享按钮 → 添加到主屏幕</template>
         <template v-else>可通过浏览器菜单将“固定传输”安装为应用</template>
       </section>
-      <p class="privacy">私密链接已保存在当前浏览器；不要转发给其他人。</p>
+      <p class="privacy">仅保留最新文字和最新文件；覆盖或删除后不可恢复。私密链接请勿转发。</p>
     </template>
   </main>
 </template>
 
 <style scoped>
 .fixed-channel { width: min(900px, calc(100% - 32px)); margin: 24px auto; color: #24292f; }
-.app-header, .heading-row, .header-actions, .title-row, .file-card, .actions, .file-actions, .inline-actions, .history-header, .history-actions, .progress-row { display: flex; align-items: center; gap: 10px; }
-.app-header, .title-row, .file-card, .actions, .history-header { justify-content: space-between; }
+.app-header, .heading-row, .header-actions, .title-row, .file-card, .actions, .file-actions, .inline-actions, .progress-row { display: flex; align-items: center; gap: 10px; }
+.app-header, .title-row, .file-card, .actions { justify-content: space-between; }
 .app-header { gap: 16px; margin: 0 2px 18px; }
 .app-header h1 { font-size: 27px; }
 .app-header p { margin-top: 4px; color: #57606a; font-size: 13px; }
@@ -517,7 +380,7 @@ onBeforeUnmount(() => {
 .card.dragging { border-color: #1f883d; background: #f0fff4; }
 h1, h2, p { margin: 0; }
 h2 { font-size: 19px; }
-.title-row p, .file-info p, .privacy, .actions span, .empty-state p, .history-header p { margin-top: 5px; color: #57606a; font-size: 13px; }
+.title-row p, .file-info p, .privacy, .actions span, .empty-state p { margin-top: 5px; color: #57606a; font-size: 13px; }
 .filename { color: #24292f !important; font-weight: 600; overflow-wrap: anywhere; }
 textarea { box-sizing: border-box; width: 100%; min-height: 280px; margin: 18px 0 12px; padding: 14px; resize: vertical; border: 1px solid #d0d7de; border-radius: 7px; outline-color: #0969da; font: 14px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 button { padding: 8px 14px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; white-space: nowrap; }
@@ -531,28 +394,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .notice.success { color: #116329; background: #dafbe1; border: 1px solid #82e596; }
 .notice.error { color: #82071e; background: #ffebe9; border: 1px solid #ff8182; }
 .notice.info { color: #0550ae; background: #ddf4ff; border: 1px solid #80ccff; }
-.notice button, .icon-button { padding: 0 4px; color: inherit; background: transparent; font-size: 20px; }
+.notice button { padding: 0 4px; color: inherit; background: transparent; font-size: 20px; }
 .dirty { color: #9a6700 !important; font-weight: 600; }
 .progress-row { margin-top: 12px; }
 .progress-track { width: min(360px, 60vw); height: 7px; overflow: hidden; border-radius: 999px; background: #d8dee4; }
 .progress-bar { height: 100%; background: #1f883d; transition: width .2s ease; }
 .progress-row span { color: #57606a; font-size: 12px; }
-.history-tabs { display: flex; gap: 8px; margin: 16px 0; border-bottom: 1px solid #d8dee4; }
-.history-tabs button { border-radius: 6px 6px 0 0; background: transparent; }
-.history-tabs button.active { color: #0969da; border-bottom: 2px solid #0969da; font-weight: 600; }
-.history-empty { padding: 22px 0; color: #57606a; text-align: center; }
-.history-list { display: flex; flex-direction: column; gap: 10px; }
-.history-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #d8dee4; border-radius: 8px; }
-.history-content { min-width: 0; }
-.history-content strong { display: block; overflow-wrap: anywhere; }
-.current-badge { display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 999px; color: #116329; background: #dafbe1; font-size: 11px; }
-.history-content p { margin-top: 4px; color: #57606a; font-size: 12px; }
-.history-content .preview { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap; }
 .install-help { margin-bottom: 10px; padding: 10px 12px; border-radius: 7px; color: #57606a; background: #f6f8fa; text-align: center; font-size: 13px; }
 .privacy, .empty-state { text-align: center; }
 @media (max-width: 700px) {
-  .app-header, .title-row, .file-card, .actions, .history-item { align-items: stretch; flex-direction: column; }
-  .header-actions, .file-actions, .inline-actions, .history-actions { width: 100%; flex-wrap: wrap; }
-  .header-actions button, .file-actions button, .inline-actions button, .history-actions button { flex: 1; }
+  .app-header, .title-row, .file-card, .actions { align-items: stretch; flex-direction: column; }
+  .header-actions, .file-actions, .inline-actions { width: 100%; flex-wrap: wrap; }
+  .header-actions button, .file-actions button, .inline-actions button { flex: 1; }
 }
 </style>
