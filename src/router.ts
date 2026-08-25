@@ -16,7 +16,8 @@ const routes = [
     { path: "/clip", name: "clip", meta: { title: $t("page_title.clip") }, component: ClipPage },
     { path: "/file", name: "file", meta: { title: $t("page_title.file") }, component: FilePage },
     { path: "/filemanage", name: "filemanage", meta: { title: $t("page_title.filemanage") }, component: FileManagePage },
-    { path: "/jili", name: "jili", meta: { title: "JILI 固定传输" }, component: FixedChannelPage },
+    { path: "/guding", name: "guding", meta: { title: "固定传输" }, component: FixedChannelPage },
+    { path: "/jili", redirect: (to: any) => ({ path: "/guding", query: to.query }) },
     { path: "/login", name: "login", meta: { title: $t("page_title.login") }, component: LoginPage },
 ];
 
@@ -28,8 +29,8 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
     if (to.meta.title) document.title = to.meta.title as string;
     const password = Cookies.get('PASSWORD');
-    // The fixed channel authenticates each data request with its own capability token.
-    if (!password && to.path !== '/login' && to.path !== '/jili') {
+    const fixedChannelPaths = ['/guding', '/jili'];
+    if (!password && to.path !== '/login' && !fixedChannelPaths.includes(to.path)) {
         next({ path: '/login' });
     } else {
         next();

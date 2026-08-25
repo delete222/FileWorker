@@ -6,6 +6,9 @@
     "exclude": [
         "index.html",
         "favicon.ico",
+        "/manifest.webmanifest",
+        "/sw.js",
+        "/icons/*",
         "/utils/*",
         "/assets/*"
     ]

@@ -7,7 +7,7 @@ const initInterceptors = () => {
         async (response) => response,
         async (error: AxiosError) => {
             toast("Error", "error");
-            if (error.response?.status === 401 && router.currentRoute.value.path !== '/jili') {
+            if (error.response?.status === 401 && router.currentRoute.value.path !== '/guding') {
                 await router.push('/login');
             }
             return Promise.reject(error);
