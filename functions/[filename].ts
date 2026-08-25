@@ -1,4 +1,4 @@
-import { GetObjectCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommandOutput } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import mime from 'mime/lite';
@@ -16,36 +16,21 @@ const hasJiliAccess = (env: Env, request: Request, filename: string) => {
 const canAccess = (env: Env, request: Request, filename: string) =>
     auth(env, request) || hasJiliAccess(env, request, filename);
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-    const { params, env, request } = context;
-    const filename = params.filename as string;
+interface ObjectHeadersSource {
+    Metadata?: Record<string, string>,
+    ContentType?: string,
+    ContentLength?: number,
+    LastModified?: Date,
+    ETag?: string,
+}
 
-    // Fixed-channel objects are always private, regardless of stale R2 metadata.
-    if (JILI_KEYS.has(filename) && !canAccess(env, request, filename)) {
-        return new Response("Not found", { status: 404 });
-    }
-
-    const s3 = createS3Client(env);
-    let response: GetObjectCommandOutput;
-    try {
-        response = await s3.send(new GetObjectCommand({ Bucket: env.BUCKET, Key: filename }));
-    } catch {
-        return new Response("Not found", { status: 404 });
-    }
-
+const buildObjectHeaders = (filename: string, response: ObjectHeadersSource) => {
     const headers = new Headers();
     for (const [key, value] of Object.entries(response.Metadata ?? {})) {
         if (value) headers.set(key, value);
     }
 
-    if (!JILI_KEYS.has(filename) &&
-        headers.get("x-store-visibility") !== "public" &&
-        !auth(env, request)) {
-        return new Response("Not found", { status: 404 });
-    }
-
-    const storeType = response.Metadata?.['x-store-type'];
-    if (storeType === "text") {
+    if (response.Metadata?.['x-store-type'] === "text") {
         headers.set('content-type', 'text/plain;charset=utf-8');
     } else {
         headers.set(
@@ -60,6 +45,56 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (response.LastModified) headers.set('last-modified', response.LastModified.toUTCString());
     if (response.ETag) headers.set('etag', response.ETag);
     if (JILI_KEYS.has(filename)) headers.set('cache-control', 'no-store, max-age=0');
+    return headers;
+};
+
+const fixedChannelAuthorized = (env: Env, request: Request, filename: string) =>
+    !JILI_KEYS.has(filename) || canAccess(env, request, filename);
+
+export const onRequestHead: PagesFunction<Env> = async ({ params, env, request }) => {
+    const filename = params.filename as string;
+    if (!fixedChannelAuthorized(env, request, filename)) {
+        return new Response(null, { status: 404 });
+    }
+
+    try {
+        const response = await createS3Client(env).send(
+            new HeadObjectCommand({ Bucket: env.BUCKET, Key: filename })
+        );
+        const headers = buildObjectHeaders(filename, response);
+        if (!JILI_KEYS.has(filename) &&
+            headers.get("x-store-visibility") !== "public" &&
+            !auth(env, request)) {
+            return new Response(null, { status: 404 });
+        }
+        return new Response(null, { status: 200, headers });
+    } catch {
+        return new Response(null, { status: 404 });
+    }
+};
+
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+    const { params, env, request } = context;
+    const filename = params.filename as string;
+
+    if (!fixedChannelAuthorized(env, request, filename)) {
+        return new Response("Not found", { status: 404 });
+    }
+
+    const s3 = createS3Client(env);
+    let response: GetObjectCommandOutput;
+    try {
+        response = await s3.send(new GetObjectCommand({ Bucket: env.BUCKET, Key: filename }));
+    } catch {
+        return new Response("Not found", { status: 404 });
+    }
+
+    const headers = buildObjectHeaders(filename, response);
+    if (!JILI_KEYS.has(filename) &&
+        headers.get("x-store-visibility") !== "public" &&
+        !auth(env, request)) {
+        return new Response("Not found", { status: 404 });
+    }
 
     return new Response(response.Body?.transformToWebStream(), { headers });
 };
@@ -75,7 +110,6 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     for (const [key, value] of request.headers.entries()) {
         if (key.startsWith('x-store-')) metadata.push([key, value]);
     }
-    // A fixed-channel upload can never make its R2 object public.
     if (JILI_KEYS.has(filename)) {
         const visibility = metadata.findIndex(([key]) => key === 'x-store-visibility');
         if (visibility >= 0) metadata[visibility] = ['x-store-visibility', 'private'];
