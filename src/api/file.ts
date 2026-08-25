@@ -3,6 +3,7 @@ import axios from 'axios';
 interface PutFileOptions {
     originalFilename?: string;
     jiliToken?: string;
+    onProgress?: (percent: number) => void;
 }
 
 const PutFile = async (
@@ -23,7 +24,13 @@ const PutFile = async (
     if (options.jiliToken) {
         headers['x-jili-token'] = options.jiliToken;
     }
-    const response = await axios.put(url, file, { headers });
+    const response = await axios.put(url, file, {
+        headers,
+        onUploadProgress: options.onProgress ? (event) => {
+            if (!event.total) return;
+            options.onProgress?.(Math.round((event.loaded / event.total) * 100));
+        } : undefined,
+    });
     return response.data;
 }
 
