@@ -7,50 +7,17 @@ import ClipPage from "./pages/ClipPage.vue";
 import FilePage from "./pages/FilePage.vue";
 import LoginPage from "./pages/LoginPage.vue";
 import FileManagePage from "./pages/FileManagePage.vue";
+import FixedChannelPage from "./pages/FixedChannelPage.vue";
 
 const $t = i18n.global.t;
 
 const routes = [
-    {
-        path: "/",
-        name: "index",
-        meta: {
-            title: $t("page_title.index"),
-        },
-        component: IndexPage,
-    },
-    {
-        path: "/clip",
-        name: "clip",
-        meta: {
-            title: $t("page_title.clip"),
-        },
-        component: ClipPage,
-    },
-    {
-        path: "/file",
-        name: "file",
-        meta: {
-            title: $t("page_title.file"),
-        },
-        component: FilePage,
-    },
-    {
-        path: "/filemanage",
-        name: "filemanage",
-        meta: {
-            title: $t("page_title.filemanage"),
-        },
-        component: FileManagePage,
-    },
-    {
-        path: "/login",
-        name: "login",
-        meta: {
-            title: $t("page_title.login"),
-        },
-        component: LoginPage,
-    },
+    { path: "/", name: "index", meta: { title: $t("page_title.index") }, component: IndexPage },
+    { path: "/clip", name: "clip", meta: { title: $t("page_title.clip") }, component: ClipPage },
+    { path: "/file", name: "file", meta: { title: $t("page_title.file") }, component: FilePage },
+    { path: "/filemanage", name: "filemanage", meta: { title: $t("page_title.filemanage") }, component: FileManagePage },
+    { path: "/jili", name: "jili", meta: { title: "JILI 固定传输" }, component: FixedChannelPage },
+    { path: "/login", name: "login", meta: { title: $t("page_title.login") }, component: LoginPage },
 ];
 
 const router = createRouter({
@@ -59,16 +26,13 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-    if (to.meta.title) {
-        document.title = to.meta.title as string;
-    }
-    const PASSWORD = Cookies.get('PASSWORD');
-    if (!PASSWORD && to.path !== '/login') {
-        next({
-            path: '/login',
-        })
+    if (to.meta.title) document.title = to.meta.title as string;
+    const password = Cookies.get('PASSWORD');
+    // The fixed channel authenticates each data request with its own capability token.
+    if (!password && to.path !== '/login' && to.path !== '/jili') {
+        next({ path: '/login' });
     } else {
-        next()
+        next();
     }
 })
 
