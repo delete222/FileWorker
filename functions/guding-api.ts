@@ -66,6 +66,14 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, request }) => {
         .filter((item) => item.Key)
         .sort((a, b) => (b.LastModified?.getTime() ?? 0) - (a.LastModified?.getTime() ?? 0));
 
+    let currentVersionId = "";
+    try {
+        const current = await s3.send(new HeadObjectCommand({ Bucket: env.BUCKET, Key: FIXED_KEYS[type] }));
+        currentVersionId = current.Metadata?.['x-store-version-id'] ?? "";
+    } catch {
+        // There may be no current object after a user intentionally deletes it.
+    }
+
     const versions = await Promise.all(objects.map(async (item) => {
         const id = item.Key!.slice(historyPrefix(type).length);
         const head = await s3.send(new HeadObjectCommand({ Bucket: env.BUCKET, Key: item.Key! }));
@@ -82,6 +90,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, request }) => {
             savedAt: head.Metadata?.['x-store-saved-at'] ?? item.LastModified?.toISOString() ?? "",
             archivedAt: item.LastModified?.toISOString() ?? "",
             preview,
+            isCurrent: Boolean(currentVersionId) && id === currentVersionId,
         };
     }));
 
