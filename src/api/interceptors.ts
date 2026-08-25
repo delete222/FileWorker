@@ -4,14 +4,13 @@ import { toast } from '@/utils/toast';
 
 const initInterceptors = () => {
     axios.interceptors.response.use(
-        async (response) => {
-            return response;
-        },
+        async (response) => response,
         async (error: AxiosError) => {
             toast("Error", "error");
-            if (error.response?.status === 401) {
+            if (error.response?.status === 401 && router.currentRoute.value.path !== '/jili') {
                 await router.push('/login');
             }
+            return Promise.reject(error);
         });
 }
 
