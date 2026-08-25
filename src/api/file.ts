@@ -1,11 +1,28 @@
 import axios from 'axios';
 
-const PutFile = async (filename: string, file: File | string, visibility: string, type: string = "file") => {
+interface PutFileOptions {
+    originalFilename?: string;
+    jiliToken?: string;
+}
+
+const PutFile = async (
+    filename: string,
+    file: File | string,
+    visibility: string,
+    type: string = "file",
+    options: PutFileOptions = {},
+) => {
     const url = `/${filename}`;
-    const headers = {
+    const headers: Record<string, string> = {
         'x-store-visibility': visibility,
         'x-store-type': type,
     };
+    if (options.originalFilename) {
+        headers['x-store-filename'] = encodeURIComponent(options.originalFilename);
+    }
+    if (options.jiliToken) {
+        headers['x-jili-token'] = options.jiliToken;
+    }
     const response = await axios.put(url, file, { headers });
     return response.data;
 }
@@ -13,9 +30,7 @@ const PutFile = async (filename: string, file: File | string, visibility: string
 const PatchFile = async (filename: string, visibility?: string) => {
     const url = `/${filename}`;
     const headers: { [key: string]: any } = {};
-    if (visibility) {
-        headers['x-store-visibility'] = visibility;
-    }
+    if (visibility) headers['x-store-visibility'] = visibility;
     const response = await axios.patch(url, {}, { headers });
     return response.data;
 }
