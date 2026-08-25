@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
         <input ref="fileInput" type="file" class="hidden" @change="onFileSelected" />
         <div class="file-actions">
           <button class="secondary" @click="fileInput?.click()" :disabled="fileUploading || !online">{{ fileUploading ? `上传中 ${uploadProgress}%` : "上传新文件" }}</button>
-          <button class="primary" @click="downloadLatestFile" :disabled="fileExists === false || !online">下载最新文件</button>
+          <button class="primary" @click="downloadLatestFile" :disabled="!online">下载最新文件</button>
           <button v-if="fileExists === true" class="text-danger" @click="deleteCurrentFile">删除</button>
         </div>
       </section>

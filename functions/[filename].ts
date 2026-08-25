@@ -1,4 +1,4 @@
-import { GetObjectCommand, HeadObjectCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommandOutput } from "@aws-sdk/client-s3";
+import { GetObjectCommand, CopyObjectCommand, DeleteObjectCommand, GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import mime from 'mime/lite';
@@ -53,17 +53,19 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response("Not found", { status: 404 });
     }
 
-    // Return lightweight file metadata as JSON. A dedicated response avoids
-    // HEAD/body and Content-Length inconsistencies in Cloudflare Pages.
+    // Return lightweight file metadata as JSON. R2 can reject HeadObject for
+    // objects that GetObject serves correctly, so request only the first byte.
     const url = new URL(request.url);
     if (filename === "jili-file" && url.searchParams.get("metadata") === "1") {
         try {
             const response = await createS3Client(env).send(
-                new HeadObjectCommand({ Bucket: env.BUCKET, Key: filename })
+                new GetObjectCommand({ Bucket: env.BUCKET, Key: filename, Range: "bytes=0-0" })
             );
+            const totalSize = response.ContentRange?.match(/\/(\d+)$/)?.[1];
+            await response.Body?.transformToByteArray();
             return Response.json({
                 filename: response.Metadata?.['x-store-filename'] ?? "",
-                size: response.ContentLength ?? null,
+                size: totalSize ? Number(totalSize) : response.ContentLength ?? null,
                 lastModified: response.LastModified?.toISOString() ?? "",
             }, {
                 headers: { 'cache-control': 'no-store, max-age=0' },
