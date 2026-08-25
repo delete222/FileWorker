@@ -135,7 +135,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
 export const onRequestPatch: PagesFunction<Env> = async (context) => {
     const { params, env, request } = context;
     const filename = params.filename as string;
-    if (!canAccess(env, request, filename)) return new Response("Unauthorized", { status: 401 });
+    if (!auth(env, request)) return new Response("Unauthorized", { status: 401 });
 
     const metadata: [string, string][] = [];
     for (const [key, value] of request.headers.entries()) {
@@ -154,7 +154,7 @@ export const onRequestPatch: PagesFunction<Env> = async (context) => {
 export const onRequestDelete: PagesFunction<Env> = async (context) => {
     const { params, env, request } = context;
     const filename = params.filename as string;
-    if (!auth(env, request)) return new Response("Unauthorized", { status: 401 });
+    if (!canAccess(env, request, filename)) return new Response("Unauthorized", { status: 401 });
 
     const command = new DeleteObjectCommand({ Bucket: env.BUCKET, Key: filename });
     const url = await getSignedUrl(createS3Client(env), command, { expiresIn: 3600 });
