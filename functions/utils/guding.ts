@@ -62,13 +62,16 @@ export const trimHistory = async (s3: S3Client, env: Env, type: GudingType) => {
 
 export const archiveCurrent = async (s3: S3Client, env: Env, type: GudingType, trim = true) => {
     const currentKey = FIXED_KEYS[type];
+    let head;
     try {
-        await s3.send(new HeadObjectCommand({ Bucket: env.BUCKET, Key: currentKey }));
-    } catch {
-        return null;
+        head = await s3.send(new HeadObjectCommand({ Bucket: env.BUCKET, Key: currentKey }));
+    } catch (error: any) {
+        const status = error?.$metadata?.httpStatusCode;
+        if (status === 404 || error?.name === 'NotFound' || error?.name === 'NoSuchKey') return null;
+        throw error;
     }
 
-    const id = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = head.Metadata?.['x-store-version-id'] ?? `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     await s3.send(new CopyObjectCommand({
         Bucket: env.BUCKET,
         CopySource: copySource(env.BUCKET, currentKey),

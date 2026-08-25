@@ -18,6 +18,7 @@ interface HistoryVersion {
   savedAt: string;
   archivedAt: string;
   preview: string;
+  isCurrent: boolean;
 }
 
 const CLIP_KEY = "jili-clip";
@@ -50,6 +51,7 @@ const historyType = ref<"text" | "file">("text");
 const historyLoading = ref(false);
 const historyVersions = ref<HistoryVersion[]>([]);
 const historyBusyId = ref("");
+const menuOpen = ref(false);
 const installPrompt = ref<InstallPromptEvent | null>(
   (window.__pwaInstallPrompt as InstallPromptEvent | undefined) ?? null
 );
@@ -326,18 +328,14 @@ const deleteHistory = async (version: HistoryVersion) => {
   }
 };
 
-const sharePrivateLink = async () => {
+const copyPrivateLink = async () => {
   const privateUrl = `${location.origin}${location.pathname}#/guding?token=${encodeURIComponent(token.value)}`;
   try {
-    if (navigator.share) {
-      await navigator.share({ title: "固定传输", text: "固定传输私密入口", url: privateUrl });
-      setNotice("success", "私密链接已打开系统分享面板");
-    } else {
-      await navigator.clipboard.writeText(privateUrl);
-      setNotice("success", "完整私密链接已复制");
-    }
-  } catch (error) {
-    if ((error as DOMException).name !== "AbortError") setNotice("error", "分享链接失败");
+    await navigator.clipboard.writeText(privateUrl);
+    menuOpen.value = false;
+    setNotice("success", "纯网址已复制，不包含附加文字");
+  } catch {
+    setNotice("error", "复制私密入口失败");
   }
 };
 
@@ -405,9 +403,14 @@ onBeforeUnmount(() => {
           <p>手机与电脑之间快速传递文字和文件</p>
         </div>
         <div class="header-actions">
-          <button class="secondary" @click="sharePrivateLink">分享入口</button>
           <button class="secondary" @click="loadHistory(historyType)">历史版本</button>
           <button v-if="installPrompt && !isStandalone" class="secondary" @click="installApp">安装应用</button>
+          <div class="more-menu">
+            <button class="secondary" @click="menuOpen = !menuOpen">更多</button>
+            <div v-if="menuOpen" class="menu-panel">
+              <button @click="copyPrivateLink">复制私密入口</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -473,14 +476,15 @@ onBeforeUnmount(() => {
             <div class="history-content">
               <strong v-if="version.type === 'file'">{{ version.filename ? decodeURIComponent(version.filename) : "历史文件" }}</strong>
               <strong v-else>{{ formatTime(version.savedAt) || "历史文字" }}</strong>
+              <span v-if="version.isCurrent" class="current-badge">当前版本</span>
               <p v-if="version.type === 'file'">{{ version.size !== null ? formatBytes(version.size) : "" }} · {{ formatTime(version.savedAt) }}</p>
               <p v-else class="preview">{{ version.preview || "（空白内容）" }}</p>
             </div>
             <div class="history-actions">
               <button v-if="version.type === 'text'" class="secondary" @click="copyHistoryText(version)" :disabled="historyBusyId === version.id">复制</button>
               <button v-else class="secondary" @click="downloadHistoryFile(version)" :disabled="historyBusyId === version.id">下载</button>
-              <button class="secondary" @click="restoreHistory(version)" :disabled="historyBusyId === version.id">恢复</button>
-              <button class="text-danger" @click="deleteHistory(version)" :disabled="historyBusyId === version.id">删除</button>
+              <button class="secondary" @click="restoreHistory(version)" :disabled="historyBusyId === version.id || version.isCurrent">恢复</button>
+              <button class="text-danger" @click="deleteHistory(version)" :disabled="historyBusyId === version.id || version.isCurrent">删除</button>
             </div>
           </article>
         </div>
@@ -505,6 +509,10 @@ onBeforeUnmount(() => {
 .network-status { padding: 2px 7px; border-radius: 999px; font-size: 12px; }
 .network-status.online { color: #116329; background: #dafbe1; }
 .network-status.offline { color: #82071e; background: #ffebe9; }
+.more-menu { position: relative; }
+.menu-panel { position: absolute; z-index: 10; top: calc(100% + 6px); right: 0; min-width: 150px; padding: 6px; border: 1px solid #d0d7de; border-radius: 8px; background: white; box-shadow: 0 8px 24px rgb(140 149 159 / 25%); }
+.menu-panel button { width: 100%; text-align: left; background: transparent; }
+.menu-panel button:hover { background: #f6f8fa; }
 .card { margin-bottom: 18px; padding: 20px; border: 1px solid #d0d7de; border-radius: 10px; background: white; box-shadow: 0 3px 12px rgb(140 149 159 / 15%); }
 .card.dragging { border-color: #1f883d; background: #f0fff4; }
 h1, h2, p { margin: 0; }
@@ -537,6 +545,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .history-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #d8dee4; border-radius: 8px; }
 .history-content { min-width: 0; }
 .history-content strong { display: block; overflow-wrap: anywhere; }
+.current-badge { display: inline-block; margin-top: 5px; padding: 2px 6px; border-radius: 999px; color: #116329; background: #dafbe1; font-size: 11px; }
 .history-content p { margin-top: 4px; color: #57606a; font-size: 12px; }
 .history-content .preview { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: pre-wrap; }
 .install-help { margin-bottom: 10px; padding: 10px 12px; border-radius: 7px; color: #57606a; background: #f6f8fa; text-align: center; font-size: 13px; }

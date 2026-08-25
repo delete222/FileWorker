@@ -114,6 +114,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         const savedAtValue: [string, string] = ['x-store-saved-at', new Date().toISOString()];
         if (savedAt >= 0) metadata[savedAt] = savedAtValue;
         else metadata.push(savedAtValue);
+        metadata.push(['x-store-version-id', `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`]);
     }
 
     const upload = new Upload({
@@ -130,7 +131,10 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         leavePartsOnError: false,
     });
     await upload.done();
-    return new Response("OK", { status: 200 });
+    // Snapshot the successfully saved version too. This guarantees that the
+    // history list is populated immediately after the first save.
+    if (gudingType) await archiveCurrent(s3, env, gudingType);
+    return Response.json({ ok: true }, { status: 200 });
 }
 
 export const onRequestPatch: PagesFunction<Env> = async (context) => {
